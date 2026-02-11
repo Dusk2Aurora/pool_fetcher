@@ -7,12 +7,14 @@ pub struct Db {
 
 impl Db {
     pub fn new(path: &str) -> Result<Self> {
-        let conn = Connection::open(path)?;
-        // 开启 WAL 模式和同步优化，大幅提升写入速度
-        conn.execute("PRAGMA journal_mode = WAL;", [])?; 
-        conn.execute("PRAGMA synchronous = NORMAL;", [])?;
-        Ok(Self { conn })
-    }
+            let conn = Connection::open(path)?;
+            conn.execute_batch(
+                "PRAGMA journal_mode = WAL;
+                 PRAGMA synchronous = NORMAL;"
+            )?;
+            
+            Ok(Self { conn })
+        }
 
     pub fn init(&self) -> Result<()> {
         // 修改 raw_pools 表，增加 tvl_usd 字段方便后续查阅（可选）
