@@ -7,18 +7,17 @@ use indicatif::{ProgressBar, ProgressStyle};
 use log::{info, warn, error};
 use tokio::time::{sleep, Duration};
 
-const BATCH_SIZE: usize = 200; // 降低每页数量以提高稳定性
+const BATCH_SIZE: usize = 50;
 const TVL_THRESHOLD: f64 = 5000.0;
-const MAX_RETRIES: u32 = 10; // 增加重试次数
+const MAX_RETRIES: u32 = 3; 
 
 pub async fn fetch_and_save(
     client: &Client, 
     db: &mut Db,
     url: &str, 
     protocol: Protocol,
-    start_id: Option<String> // 新增：支持断点续传
+    start_id: Option<String>
 ) -> Result<()> {
-    // 如果有传入 start_id，则从该 ID 开始，否则从空字符串开始
     let mut last_id = start_id.unwrap_or_default();
     let mut has_more = true;
     let mut total_saved = 0;
@@ -27,7 +26,6 @@ pub async fn fetch_and_save(
     info!("🚀 开始任务 [{:?}]", protocol);
     info!("🔗 目标 URL: {}", url);
     info!("📂 起始 ID: \"{}\"", last_id);
-    info!("📦每页数量: {}", BATCH_SIZE);
 
     let pb = ProgressBar::new_spinner();
     pb.set_style(ProgressStyle::default_spinner().template("{spinner:.green} [{elapsed_precise}] 页数:{bar} | 已存: {pos} | 最新ID: {msg}").unwrap());
@@ -69,9 +67,23 @@ pub async fn fetch_and_save(
             }
         };
 
+        // --- 核心修复：检查 errors 和 data ---
+        
+        // 1. 如果有 errors，先打印出来，让我们知道发生了什么
         if let Some(errs) = resp_body.get("errors") {
-            warn!("⚠️ GraphQL 返回错误: {:?}", errs);
+            // 有些 subgraph 会同时返回 data 和 errors（部分成功），所以这里只报 warn
+            warn!("⚠️ GraphQL 返回错误信息: {:?}", errs);
         }
+
+        // 2. 严格检查 data 是否存在
+        // 如果 data 是 null 或者不存在，说明查询完全失败（可能是 query 写错，或者服务器内部错误）
+        if resp_body.get("data").is_none() || resp_body["data"].is_null() {
+            error!("❌ 致命错误：服务器响应缺少 'data' 字段！");
+            error!("📄 完整响应内容: {:?}", resp_body); // 打印完整内容以便调试
+            return Err(anyhow::anyhow!("GraphQL Error: Missing data field"));
+        }
+
+        // --- 检查结束，开始解析 ---
 
         let (mut batch_pools, fetched_count, new_last_id) = parse_response(&protocol, resp_body)?;
 
@@ -89,10 +101,8 @@ pub async fn fetch_and_save(
                 total_saved += batch_pools.len();
                 pb.inc(batch_pools.len() as u64);
             }
-            // 更新进度条消息为当前 ID，方便用户截图或复制
             pb.set_message(last_id.clone());
             
-            // 每 10 页打印一次日志，防止进度条没显示时看不到进度
             if page_count % 10 == 0 {
                 info!("第 {} 页完成 | 当前 ID: {} | 已存总数: {}", page_count, last_id, total_saved);
             }
@@ -104,7 +114,6 @@ pub async fn fetch_and_save(
             has_more = false;
         }
 
-        // 稍微休息一下，防止被封
         sleep(Duration::from_millis(200)).await;
     }
 
@@ -120,7 +129,7 @@ fn parse_response(protocol: &Protocol, body: Value) -> Result<(Vec<UnifiedPool>,
 
     match protocol {
         Protocol::UniV3 | Protocol::AerodromeV3 => {
-            let data: GraphResponse<V3Data> = serde_json::from_value(body).context("解析 V3 失败")?;
+            let data: GraphResponse<V3Data> = serde_json::from_value(body).context("解析 V3 数据结构失败")?;
             count = data.data.pools.len();
             if let Some(last) = data.data.pools.last() {
                 last_id = last.id.clone();
@@ -149,7 +158,7 @@ fn parse_response(protocol: &Protocol, body: Value) -> Result<(Vec<UnifiedPool>,
             }
         },
         Protocol::UniV2 => {
-            let data: GraphResponse<V2Data> = serde_json::from_value(body).context("解析 V2 失败")?;
+            let data: GraphResponse<V2Data> = serde_json::from_value(body).context("解析 V2 数据结构失败")?;
             count = data.data.pairs.len();
             if let Some(last) = data.data.pairs.last() {
                 last_id = last.id.clone();
