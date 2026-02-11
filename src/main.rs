@@ -71,18 +71,33 @@ async fn main() -> anyhow::Result<()> {
     info!("清洗后剩余目标数据: {} 条", clean_pools.len());
 
     // 9. 第四步：写入目标数据库 (Target DB)
-    info!("--- 第四步：生成目标地址库 ---");
+    println!("\n--- 第四步：生成目标地址库 ---");
     database.clear_target()?;
     
-    // 将清洗后的最终数据写入 target_pools 表
-    // 由于经过了 TVL 过滤和清洗，数据量通常在几千到几万条，循环插入速度可以接受
-    let mut count = 0;
-    for pool in &clean_pools {
-        database.insert_target(pool)?;
-        count += 1;
+    let tx = database.conn.transaction()?; 
+    {
+        // SQL 语句更新，加入 symbol 字段
+        let mut stmt = tx.prepare(
+            "INSERT OR REPLACE INTO target_pools 
+            (address, protocol, token0, token0_symbol, token1, token1_symbol, fee, extra_data)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"
+        )?;
+        
+        for pool in &clean_pools {
+             stmt.execute(rusqlite::params![
+                 pool.id, 
+                 pool.protocol, 
+                 pool.token0_id, 
+                 pool.token0_symbol, // 写入 symbol
+                 pool.token1_id, 
+                 pool.token1_symbol, // 写入 symbol
+                 pool.fee, 
+                 pool.extra_data
+             ])?;
+        }
     }
-    info!("已成功写入 {} 条目标数据", count);
+    tx.commit()?;
 
-    info!("✅ 所有任务完成！请检查 {}", config.db_path);
+    println!("\n✅ 所有任务完成！");
     Ok(())
 }
