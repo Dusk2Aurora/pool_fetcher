@@ -20,15 +20,16 @@ impl Protocol {
 /// 统一的池子结构，用于存入数据库
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnifiedPool {
-    pub id: String,         // 池子地址 (0x...)
-    pub protocol: String,   // V3, V2, Aerodrome-V3
-    pub token0_id: String,  // Token0 地址
+    pub id: String,
+    pub protocol: String,
+    pub token0_id: String,
     pub token0_symbol: String,
-    pub token1_id: String,  // Token1 地址
+    pub token1_id: String,
     pub token1_symbol: String,
-    pub fee: u32,           // V3 用 feeTier, V2 默认为 3000 (0.3%)
-    pub raw_json: String,   // 原始 JSON 数据，用于备份
-    pub extra_data: String, // 存储 liquidity, TVL 等额外参考数据
+    pub fee: u32,
+    pub raw_json: String,
+    pub extra_data: String,
+    pub tvl_usd: f64, // 新增：用于存储 TVL
 }
 
 // 以下是用于解析 GraphQL 响应的辅助结构
@@ -51,10 +52,13 @@ pub struct V3Pool {
     pub token0: TokenPart,
     pub token1: TokenPart,
     #[serde(default)]
-    pub feeTier: String, // 有些 subgraph 返回 string
+    pub feeTier: String,
     #[serde(default)]
     pub liquidity: String,
+    #[serde(default)] // 默认为 "0" 防止字段不存在报错
+    pub totalValueLockedUSD: String, 
 }
+
 
 #[derive(Deserialize, Debug)]
 pub struct V3Data {
