@@ -7,34 +7,38 @@ use indicatif::{ProgressBar, ProgressStyle};
 use log::{info, warn, error};
 use tokio::time::{sleep, Duration};
 
-const BATCH_SIZE: usize = 1000;
-const TVL_THRESHOLD: f64 = 5000.0; // 过滤阈值：5000 USD
-const MAX_RETRIES: u32 = 5;        // 最大重试次数
+const BATCH_SIZE: usize = 200; // 降低每页数量以提高稳定性
+const TVL_THRESHOLD: f64 = 5000.0;
+const MAX_RETRIES: u32 = 10; // 增加重试次数
 
 pub async fn fetch_and_save(
     client: &Client, 
     db: &mut Db,
     url: &str, 
-    protocol: Protocol
+    protocol: Protocol,
+    start_id: Option<String> // 新增：支持断点续传
 ) -> Result<()> {
-    let mut last_id = "".to_string();
+    // 如果有传入 start_id，则从该 ID 开始，否则从空字符串开始
+    let mut last_id = start_id.unwrap_or_default();
     let mut has_more = true;
     let mut total_saved = 0;
+    let mut page_count = 0;
 
-    info!("开始任务 [{:?}] | 目标 URL: {}", protocol, url);
+    info!("🚀 开始任务 [{:?}]", protocol);
+    info!("🔗 目标 URL: {}", url);
+    info!("📂 起始 ID: \"{}\"", last_id);
+    info!("📦每页数量: {}", BATCH_SIZE);
 
     let pb = ProgressBar::new_spinner();
-    pb.set_style(ProgressStyle::default_spinner().template("{spinner:.green} [{elapsed_precise}] 已存入: {pos} | 当前ID: {msg}").unwrap());
+    pb.set_style(ProgressStyle::default_spinner().template("{spinner:.green} [{elapsed_precise}] 页数:{bar} | 已存: {pos} | 最新ID: {msg}").unwrap());
 
     while has_more {
+        page_count += 1;
         let query = build_query(&protocol, &last_id);
         
-        // --- 重试逻辑开始 ---
         let mut attempts = 0;
         let resp_body: Value = loop {
             attempts += 1;
-            
-            // 发送请求
             let result = client.post(url)
                 .json(&serde_json::json!({ "query": query }))
                 .send()
@@ -42,70 +46,70 @@ pub async fn fetch_and_save(
 
             match result {
                 Ok(resp) => {
-                    // 尝试解析响应为 JSON
                     match resp.json::<Value>().await {
-                        Ok(body) => break body, // 成功拿到 JSON，跳出重试循环
+                        Ok(body) => break body,
                         Err(e) => {
                             if attempts >= MAX_RETRIES {
-                                error!("解析 JSON 失败 (重试耗尽): {:?}", e);
+                                error!("❌ 解析 JSON 失败 (重试耗尽): {:?}", e);
                                 return Err(e.into());
                             }
-                            warn!("解析 JSON 失败 (第 {} 次重试): {:?}", attempts, e);
+                            warn!("⚠️ 解析 JSON 失败 (第 {} 次重试): {:?}", attempts, e);
+                            sleep(Duration::from_secs(2u64.pow(attempts))).await;
                         }
                     }
                 },
                 Err(e) => {
                     if attempts >= MAX_RETRIES {
-                        error!("请求失败 (重试耗尽): {:?}", e);
+                        error!("❌ 请求失败 (重试耗尽): {:?}", e);
                         return Err(e.into());
                     }
-                    warn!("网络请求失败 (第 {} 次重试): {:?}。等待重试...", attempts, e);
-                    // 指数退避：第一次等 2s，第二次 4s，第三次 8s...
+                    warn!("⚠️ 网络请求失败 (第 {} 次重试): {:?}。等待重试...", attempts, e);
                     sleep(Duration::from_secs(2u64.pow(attempts))).await;
                 }
             }
         };
-        // --- 重试逻辑结束 ---
 
-        // 检查 GraphQL 错误
         if let Some(errs) = resp_body.get("errors") {
-            warn!("GraphQL 返回错误: {:?}", errs);
-            // 遇到错误可以选择跳过或停止，这里选择记录警告并继续尝试解析数据（如果有的话）
+            warn!("⚠️ GraphQL 返回错误: {:?}", errs);
         }
 
-        // 解析数据
         let (mut batch_pools, fetched_count, new_last_id) = parse_response(&protocol, resp_body)?;
 
         if fetched_count > 0 {
-            last_id = new_last_id;
+            last_id = new_last_id.clone();
             
-            // 1. 粗筛选：保留 TVL >= 5000 的池子
+            // 粗筛选
             batch_pools.retain(|p| p.tvl_usd >= TVL_THRESHOLD);
             
-            // 2. 立即写入数据库
             if !batch_pools.is_empty() {
                 if let Err(e) = db.insert_batch(&batch_pools) {
-                    error!("数据库写入失败: {:?}", e);
+                    error!("❌ 数据库写入失败: {:?}", e);
                     return Err(e.into());
                 }
                 total_saved += batch_pools.len();
                 pb.inc(batch_pools.len() as u64);
             }
+            // 更新进度条消息为当前 ID，方便用户截图或复制
             pb.set_message(last_id.clone());
+            
+            // 每 10 页打印一次日志，防止进度条没显示时看不到进度
+            if page_count % 10 == 0 {
+                info!("第 {} 页完成 | 当前 ID: {} | 已存总数: {}", page_count, last_id, total_saved);
+            }
+        } else {
+            has_more = false;
         }
 
-        // 如果拉取到的数量少于每页最大数量，说明是最后一页
         if fetched_count < BATCH_SIZE {
             has_more = false;
         }
 
-        // --- 主动降速 ---
-        // 每次成功请求后暂停 100ms，避免触发 API 速率限制
-        sleep(Duration::from_millis(100)).await;
+        // 稍微休息一下，防止被封
+        sleep(Duration::from_millis(200)).await;
     }
 
     pb.finish_with_message(format!("任务完成，共存入 {} 条数据", total_saved));
-    info!("[{:?}] 拉取结束，有效数据: {}", protocol, total_saved);
+    info!("✅ [{:?}] 拉取结束，有效数据: {}", protocol, total_saved);
     Ok(())
 }
 
@@ -116,7 +120,7 @@ fn parse_response(protocol: &Protocol, body: Value) -> Result<(Vec<UnifiedPool>,
 
     match protocol {
         Protocol::UniV3 | Protocol::AerodromeV3 => {
-            let data: GraphResponse<V3Data> = serde_json::from_value(body).context("解析 V3 数据失败")?;
+            let data: GraphResponse<V3Data> = serde_json::from_value(body).context("解析 V3 失败")?;
             count = data.data.pools.len();
             if let Some(last) = data.data.pools.last() {
                 last_id = last.id.clone();
@@ -124,26 +128,19 @@ fn parse_response(protocol: &Protocol, body: Value) -> Result<(Vec<UnifiedPool>,
             for p in data.data.pools {
                 let tvl = p.totalValueLockedUSD.parse::<f64>().unwrap_or(0.0);
                 let fee = p.feeTier.parse::<u32>().unwrap_or(0);
-                
-                // 备份原始 JSON
                 let raw = serde_json::to_string(&p).unwrap();
-                
-                // 构造 extra_data，保留流动性等信息
                 let extra = serde_json::json!({
                     "liquidity": p.liquidity,
-                    "tvl_usd": p.totalValueLockedUSD,
-                    // 虽然有了独立字段，但在 JSON 里也保留一份备份
-                    "symbol0": p.token0.symbol,
-                    "symbol1": p.token1.symbol
+                    "tvl_usd": p.totalValueLockedUSD
                 }).to_string();
 
                 pools.push(UnifiedPool {
                     id: p.id,
                     protocol: protocol.as_str().to_string(),
                     token0_id: p.token0.id,
-                    token0_symbol: p.token0.symbol, // 确保解析了 Symbol
+                    token0_symbol: p.token0.symbol,
                     token1_id: p.token1.id,
-                    token1_symbol: p.token1.symbol, // 确保解析了 Symbol
+                    token1_symbol: p.token1.symbol,
                     fee,
                     raw_json: raw,
                     extra_data: extra,
@@ -152,7 +149,7 @@ fn parse_response(protocol: &Protocol, body: Value) -> Result<(Vec<UnifiedPool>,
             }
         },
         Protocol::UniV2 => {
-            let data: GraphResponse<V2Data> = serde_json::from_value(body).context("解析 V2 数据失败")?;
+            let data: GraphResponse<V2Data> = serde_json::from_value(body).context("解析 V2 失败")?;
             count = data.data.pairs.len();
             if let Some(last) = data.data.pairs.last() {
                 last_id = last.id.clone();
@@ -161,19 +158,17 @@ fn parse_response(protocol: &Protocol, body: Value) -> Result<(Vec<UnifiedPool>,
                 let tvl = p.reserveUSD.parse::<f64>().unwrap_or(0.0);
                 let raw = serde_json::to_string(&p).unwrap();
                 let extra = serde_json::json!({
-                    "reserveUSD": p.reserveUSD,
-                    "symbol0": p.token0.symbol,
-                    "symbol1": p.token1.symbol
+                    "reserveUSD": p.reserveUSD
                 }).to_string();
 
                 pools.push(UnifiedPool {
                     id: p.id,
                     protocol: protocol.as_str().to_string(),
                     token0_id: p.token0.id,
-                    token0_symbol: p.token0.symbol, // 确保解析了 Symbol
+                    token0_symbol: p.token0.symbol,
                     token1_id: p.token1.id,
-                    token1_symbol: p.token1.symbol, // 确保解析了 Symbol
-                    fee: 3000, // V2 默认 0.3%
+                    token1_symbol: p.token1.symbol,
+                    fee: 3000,
                     raw_json: raw,
                     extra_data: extra,
                     tvl_usd: tvl,

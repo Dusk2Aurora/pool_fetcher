@@ -1,9 +1,14 @@
 use serde::{Deserialize, Serialize};
+use clap::ValueEnum; // 新增
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+// 增加 Clone, ValueEnum 用于命令行参数
+#[derive(Debug, Clone, Serialize, Deserialize, ValueEnum, PartialEq)]
 pub enum Protocol {
+    #[value(name = "v3")]
     UniV3,
+    #[value(name = "aerodrome")]
     AerodromeV3,
+    #[value(name = "v2")]
     UniV2,
 }
 
@@ -17,7 +22,6 @@ impl Protocol {
     }
 }
 
-/// 统一的池子结构，用于存入数据库
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnifiedPool {
     pub id: String,
@@ -29,10 +33,8 @@ pub struct UnifiedPool {
     pub fee: u32,
     pub raw_json: String,
     pub extra_data: String,
-    pub tvl_usd: f64, // 新增：用于存储 TVL
+    pub tvl_usd: f64,
 }
-
-// 以下是用于解析 GraphQL 响应的辅助结构
 
 #[derive(Deserialize, Debug)]
 pub struct GraphResponse<T> {
@@ -45,27 +47,24 @@ pub struct TokenPart {
     pub symbol: String,
 }
 
-// V3 风格的响应结构 (UniV3, Aerodrome)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct V3Pool {
     pub id: String,
     pub token0: TokenPart,
     pub token1: TokenPart,
     #[serde(default)]
-    pub feeTier: String,
+    pub feeTier: String, 
     #[serde(default)]
     pub liquidity: String,
-    #[serde(default)] // 默认为 "0" 防止字段不存在报错
+    #[serde(default)]
     pub totalValueLockedUSD: String, 
 }
-
 
 #[derive(Deserialize, Debug)]
 pub struct V3Data {
     pub pools: Vec<V3Pool>,
 }
 
-// V2 风格的响应结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct V2Pair {
     pub id: String,

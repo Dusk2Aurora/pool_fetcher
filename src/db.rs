@@ -2,7 +2,7 @@ use rusqlite::{params, Connection, Result};
 use crate::models::UnifiedPool;
 
 pub struct Db {
-    pub conn: Connection, // 将 conn 设为 pub，方便 main.rs 使用事务
+    pub conn: Connection,
 }
 
 impl Db {
@@ -16,7 +16,7 @@ impl Db {
     }
 
     pub fn init(&self) -> Result<()> {
-        // 1. 粗数据表：增加 token0_symbol, token1_symbol
+        // 1. 粗数据表
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS raw_pools (
                 id TEXT PRIMARY KEY,
@@ -31,7 +31,7 @@ impl Db {
             [],
         )?;
 
-        // 2. 目标表：增加 token0_symbol, token1_symbol
+        // 2. 目标表
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS target_pools (
                 address TEXT PRIMARY KEY,
@@ -52,7 +52,6 @@ impl Db {
     pub fn insert_batch(&mut self, pools: &[UnifiedPool]) -> Result<()> {
         let tx = self.conn.transaction()?;
         {
-            // SQL 语句更新，加入 symbol 字段
             let mut stmt = tx.prepare(
                 "INSERT OR REPLACE INTO raw_pools 
                 (id, protocol, token0, token0_symbol, token1, token1_symbol, tvl_usd, raw_json)
@@ -64,9 +63,9 @@ impl Db {
                     pool.id, 
                     pool.protocol, 
                     pool.token0_id, 
-                    pool.token0_symbol, // 新增
+                    pool.token0_symbol, 
                     pool.token1_id, 
-                    pool.token1_symbol, // 新增
+                    pool.token1_symbol,
                     pool.tvl_usd,
                     pool.raw_json
                 ])?;
@@ -77,7 +76,6 @@ impl Db {
     }
 
     pub fn get_all_raw(&self) -> Result<Vec<UnifiedPool>> {
-        // 读取时也把 symbol 读出来
         let mut stmt = self.conn.prepare(
             "SELECT id, protocol, token0, token0_symbol, token1, token1_symbol, tvl_usd, raw_json FROM raw_pools"
         )?;
@@ -87,9 +85,9 @@ impl Db {
                 id: row.get(0)?,
                 protocol: row.get(1)?,
                 token0_id: row.get(2)?,
-                token0_symbol: row.get(3)?, // 读取
+                token0_symbol: row.get(3)?,
                 token1_id: row.get(4)?,
-                token1_symbol: row.get(5)?, // 读取
+                token1_symbol: row.get(5)?,
                 fee: 0, 
                 tvl_usd: row.get(6)?,
                 raw_json: row.get(7)?,
