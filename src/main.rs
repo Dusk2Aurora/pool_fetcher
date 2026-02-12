@@ -8,10 +8,11 @@ use clap::{Parser, Subcommand};
 use config::Config;
 use db::Db;
 use models::Protocol;
-use reqwest::Client;
+use reqwest::{Client, Proxy}; // 引入 Proxy
 use std::time::Duration;
 use std::io::Write;
 use rusqlite::params;
+use std::env; // 引入 env
 
 #[derive(Parser)]
 #[command(name = "pool_fetcher")]
@@ -68,9 +69,24 @@ async fn main() -> anyhow::Result<()> {
                 Protocol::UniV2 => config.url_uni_v2,
             };
 
-            let client = Client::builder()
-                .timeout(Duration::from_secs(60)) // 超时 60秒
-                .build()?;
+            // --- 修改开始：手动配置代理 ---
+            let mut client_builder = Client::builder()
+                .timeout(Duration::from_secs(60)); // 超时 60秒
+
+            // 优先读取 HTTPS_PROXY，其次 HTTP_PROXY
+            // 你的环境变量是 127.0.0.1:10881，reqwest 需要 http://127.0.0.1:10881
+            if let Ok(proxy_str) = env::var("HTTPS_PROXY").or_else(|_| env::var("HTTP_PROXY")) {
+                let proxy_url = if proxy_str.starts_with("http") {
+                    proxy_str
+                } else {
+                    format!("http://{}", proxy_str) // 自动补全前缀
+                };
+                println!("🌐 检测到代理设置，正在应用: {}", proxy_url);
+                client_builder = client_builder.proxy(Proxy::all(proxy_url)?);
+            }
+            
+            let client = client_builder.build()?;
+            // --- 修改结束 ---
 
             println!("--- 模式: 单协议拉取 ---");
             if let Some(ref id) = start_id {
