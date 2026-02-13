@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use clap::ValueEnum; // 新增
+use clap::ValueEnum;
 
 // 增加 Clone, ValueEnum 用于命令行参数
 #[derive(Debug, Clone, Serialize, Deserialize, ValueEnum, PartialEq)]
@@ -10,6 +10,9 @@ pub enum Protocol {
     AerodromeV3,
     #[value(name = "v2")]
     UniV2,
+    // 新增 V4
+    #[value(name = "v4")]
+    UniV4,
 }
 
 impl Protocol {
@@ -18,6 +21,7 @@ impl Protocol {
             Protocol::UniV3 => "V3",
             Protocol::AerodromeV3 => "Aerodrome-V3",
             Protocol::UniV2 => "V2",
+            Protocol::UniV4 => "V4",
         }
     }
 }
@@ -77,4 +81,24 @@ pub struct V2Pair {
 #[derive(Deserialize, Debug)]
 pub struct V2Data {
     pub pairs: Vec<V2Pair>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct V4Pool {
+    pub id: String,
+    pub token0: TokenPart,
+    pub token1: TokenPart,
+    #[serde(default)]
+    pub feeTier: String,
+    #[serde(default)]
+    pub hooks: String,
+    #[serde(default)]
+    pub liquidity: String,
+    #[serde(default)]
+    pub totalValueLockedUSD: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct V4Data {
+    pub pools: Vec<V4Pool>,
 }

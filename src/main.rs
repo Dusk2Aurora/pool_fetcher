@@ -67,6 +67,7 @@ async fn main() -> anyhow::Result<()> {
                 Protocol::UniV3 => config.url_uni_v3,
                 Protocol::AerodromeV3 => config.url_aerodrome,
                 Protocol::UniV2 => config.url_uni_v2,
+                Protocol::UniV4 => config.url_uni_v4,
             };
 
             let mut client_builder = Client::builder()

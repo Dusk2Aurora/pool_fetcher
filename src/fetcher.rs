@@ -1,7 +1,7 @@
 use reqwest::Client;
 use serde_json::Value;
 use anyhow::{Result, Context};
-use crate::models::{Protocol, UnifiedPool, GraphResponse, V3Data, V2Data};
+use crate::models::{Protocol, UnifiedPool, GraphResponse, V3Data, V2Data, V4Data};
 use crate::db::Db;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{info, warn, error};
@@ -183,6 +183,37 @@ fn parse_response(protocol: &Protocol, body: Value) -> Result<(Vec<UnifiedPool>,
                     tvl_usd: tvl,
                 });
             }
+        },
+        Protocol::UniV4 => {
+            let data: GraphResponse<V4Data> = serde_json::from_value(body).context("解析 V4 数据结构失败")?;
+            count = data.data.pools.len();
+            if let Some(last) = data.data.pools.last() {
+                last_id = last.id.clone();
+            }
+            for p in data.data.pools {
+                let tvl = p.totalValueLockedUSD.parse::<f64>().unwrap_or(0.0);
+                let fee = p.feeTier.parse::<u32>().unwrap_or(0);
+                let raw = serde_json::to_string(&p).unwrap();
+                // V4 特有：将 hooks 放入 extra_data
+                let extra = serde_json::json!({
+                    "liquidity": p.liquidity,
+                    "tvl_usd": p.totalValueLockedUSD,
+                    "hooks": p.hooks 
+                }).to_string();
+
+                pools.push(UnifiedPool {
+                    id: p.id,
+                    protocol: protocol.as_str().to_string(),
+                    token0_id: p.token0.id,
+                    token0_symbol: p.token0.symbol,
+                    token1_id: p.token1.id,
+                    token1_symbol: p.token1.symbol,
+                    fee,
+                    raw_json: raw,
+                    extra_data: extra,
+                    tvl_usd: tvl,
+                });
+            }
         }
     }
     Ok((pools, count, last_id))
@@ -208,6 +239,20 @@ fn build_query(protocol: &Protocol, last_id: &str) -> String {
                 pairs(first: {}, where: {{ id_gt: "{}" }}, orderBy: id, orderDirection: asc) {{
                     id
                     reserveUSD
+                    token0 {{ id symbol }}
+                    token1 {{ id symbol }}
+                }}
+            }}"#,
+            BATCH_SIZE, last_id
+        ),
+        Protocol::UniV4 => format!(
+            r#"{{
+                pools(first: {}, where: {{ id_gt: "{}" }}, orderBy: id, orderDirection: asc) {{
+                    id
+                    feeTier
+                    hooks
+                    liquidity
+                    totalValueLockedUSD
                     token0 {{ id symbol }}
                     token1 {{ id symbol }}
                 }}

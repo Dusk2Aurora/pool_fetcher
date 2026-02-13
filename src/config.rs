@@ -7,6 +7,7 @@ pub struct Config {
     pub url_uni_v3: String,
     pub url_aerodrome: String,
     pub url_uni_v2: String,
+    pub url_uni_v4: String,
 }
 
 impl Config {
@@ -21,12 +22,16 @@ impl Config {
             .expect("Missing URL_AERODROME_BASE in .env");
         let url_uni_v2 = env::var("URL_UNIV2_BASE")
             .expect("Missing URL_UNIV2_BASE in .env");
+        // 读取 V4 URL
+        let url_uni_v4 = env::var("URL_UNIV4_BASE")
+            .expect("Missing URL_UNIV4_BASE in .env");
 
         Ok(Self {
             db_path,
             url_uni_v3,
             url_aerodrome,
             url_uni_v2,
+            url_uni_v4,
         })
     }
 }
