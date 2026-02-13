@@ -8,11 +8,11 @@ use clap::{Parser, Subcommand};
 use config::Config;
 use db::Db;
 use models::Protocol;
-use reqwest::{Client, Proxy}; // 引入 Proxy
+use reqwest::{Client, Proxy};
 use std::time::Duration;
 use std::io::Write;
 use rusqlite::params;
-use std::env; // 引入 env
+use std::env;
 
 #[derive(Parser)]
 #[command(name = "pool_fetcher")]
@@ -69,24 +69,43 @@ async fn main() -> anyhow::Result<()> {
                 Protocol::UniV2 => config.url_uni_v2,
             };
 
-            // --- 修改开始：手动配置代理 ---
             let mut client_builder = Client::builder()
                 .timeout(Duration::from_secs(60)); // 超时 60秒
 
-            // 优先读取 HTTPS_PROXY，其次 HTTP_PROXY
-            // 你的环境变量是 127.0.0.1:10881，reqwest 需要 http://127.0.0.1:10881
-            if let Ok(proxy_str) = env::var("HTTPS_PROXY").or_else(|_| env::var("HTTP_PROXY")) {
-                let proxy_url = if proxy_str.starts_with("http") {
-                    proxy_str
+            // --- 强制代理配置逻辑 ---
+            // 1. 手动读取环境变量
+            let proxy_setting = std::env::var("HTTPS_PROXY")
+                .or_else(|_| std::env::var("HTTP_PROXY"))
+                .or_else(|_| std::env::var("https_proxy"))
+                .or_else(|_| std::env::var("http_proxy"));
+
+            if let Ok(addr) = proxy_setting {
+                // 2. 检查并补全 http:// 前缀
+                let proxy_url = if addr.starts_with("http") {
+                    addr
                 } else {
-                    format!("http://{}", proxy_str) // 自动补全前缀
+                    format!("http://{}", addr) 
                 };
-                println!("🌐 检测到代理设置，正在应用: {}", proxy_url);
-                client_builder = client_builder.proxy(Proxy::all(proxy_url)?);
+
+                println!("🌐 正在强制应用代理: {}", proxy_url);
+
+                // 3. 创建 Proxy 对象并注入
+                // Proxy::all() 会同时代理 HTTP 和 HTTPS 请求
+                match reqwest::Proxy::all(&proxy_url) {
+                    Ok(proxy) => {
+                        client_builder = client_builder.proxy(proxy);
+                    },
+                    Err(e) => {
+                        log::error!("❌ 代理地址格式错误: {:?}", e);
+                        return Err(anyhow::anyhow!("Invalid Proxy URL"));
+                    }
+                }
+            } else {
+                println!("⚠️ 未检测到代理环境变量，将使用直连 (可能会失败)");
             }
-            
+            // --- 配置结束 ---
+
             let client = client_builder.build()?;
-            // --- 修改结束 ---
 
             println!("--- 模式: 单协议拉取 ---");
             if let Some(ref id) = start_id {
