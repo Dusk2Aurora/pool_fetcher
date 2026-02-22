@@ -1,5 +1,6 @@
 use rusqlite::{params, Connection, Result};
 use crate::models::UnifiedPool;
+use serde_json::Value;
 
 pub struct Db {
     pub conn: Connection,
@@ -16,7 +17,6 @@ impl Db {
     }
 
     pub fn init(&self) -> Result<()> {
-        // 1. 粗数据表
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS raw_pools (
                 id TEXT PRIMARY KEY,
@@ -31,7 +31,6 @@ impl Db {
             [],
         )?;
 
-        // 2. 目标表
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS target_pools (
                 address TEXT PRIMARY KEY,
@@ -81,17 +80,54 @@ impl Db {
         )?;
         
         let rows = stmt.query_map([], |row| {
+            let id: String = row.get(0)?;
+            let protocol: String = row.get(1)?;
+            let raw_json: String = row.get(7)?;
+            
+            let val: Value = serde_json::from_str(&raw_json).unwrap_or(Value::Null);
+            
+            // 1. 提取 Fee
+            let fee = if protocol == "V2" {
+                3000 // V2 固定 0.3%
+            } else {
+                // V3, Aerodrome, V4 都有 feeTier
+                val["feeTier"]
+                    .as_str()
+                    .unwrap_or("0")
+                    .parse::<u32>()
+                    .unwrap_or(0)
+            };
+
+            // 2. 重建 extra_data (包含 hooks)
+            let extra_data = if protocol == "V4" {
+                serde_json::json!({
+                    "hooks": val["hooks"], 
+                    "liquidity": val["liquidity"],
+                    "tvl_usd": val["totalValueLockedUSD"]
+                }).to_string()
+            } else if protocol == "V2" {
+                serde_json::json!({
+                    "reserveUSD": val["reserveUSD"]
+                }).to_string()
+            } else {
+                // V3 & Aerodrome
+                serde_json::json!({
+                    "liquidity": val["liquidity"],
+                    "tvl_usd": val["totalValueLockedUSD"]
+                }).to_string()
+            };
+
             Ok(UnifiedPool {
-                id: row.get(0)?,
-                protocol: row.get(1)?,
+                id,
+                protocol,
                 token0_id: row.get(2)?,
                 token0_symbol: row.get(3)?,
                 token1_id: row.get(4)?,
                 token1_symbol: row.get(5)?,
-                fee: 0, 
+                fee,
                 tvl_usd: row.get(6)?,
-                raw_json: row.get(7)?,
-                extra_data: "".to_string(),
+                raw_json,
+                extra_data,
             })
         })?;
 

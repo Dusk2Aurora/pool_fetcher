@@ -8,7 +8,7 @@ use log::{info, warn, error};
 use tokio::time::{sleep, Duration};
 
 const BATCH_SIZE: usize = 1000;
-const TVL_THRESHOLD: f64 = 5000.0;
+const TVL_THRESHOLD: f64 = 500.0;
 const MAX_RETRIES: u32 = 5; 
 
 pub async fn fetch_and_save(
