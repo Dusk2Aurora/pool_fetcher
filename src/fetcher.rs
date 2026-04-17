@@ -8,7 +8,7 @@ use log::{info, warn, error};
 use tokio::time::{sleep, Duration};
 
 const BATCH_SIZE: usize = 1000;
-const TVL_THRESHOLD: f64 = 500.0;
+const TVL_THRESHOLD: f64 = 1.0;
 const MAX_RETRIES: u32 = 5; 
 
 pub async fn fetch_and_save(
@@ -91,7 +91,14 @@ pub async fn fetch_and_save(
             last_id = new_last_id.clone();
             
             // 粗筛选
+            let before_count = batch_pools.len();
             batch_pools.retain(|p| p.tvl_usd >= TVL_THRESHOLD);
+            let after_count = batch_pools.len();
+            
+            if before_count != after_count {
+                info!("🔍 [过滤统计] 原始: {}, 经过 TVL 阈值 ({}) 后剩余: {}, 丢弃: {}", 
+                    before_count, TVL_THRESHOLD, after_count, before_count - after_count);
+            }
             
             if !batch_pools.is_empty() {
                 if let Err(e) = db.insert_batch(&batch_pools) {
@@ -184,7 +191,7 @@ fn parse_response(protocol: &Protocol, body: Value) -> Result<(Vec<UnifiedPool>,
                 });
             }
         },
-        Protocol::UniV4 => {
+        Protocol::UniV4 | Protocol::PancakeV4 => {
             let data: GraphResponse<V4Data> = serde_json::from_value(body).context("解析 V4 数据结构失败")?;
             count = data.data.pools.len();
             if let Some(last) = data.data.pools.last() {
@@ -245,7 +252,7 @@ fn build_query(protocol: &Protocol, last_id: &str) -> String {
             }}"#,
             BATCH_SIZE, last_id
         ),
-        Protocol::UniV4 => format!(
+        Protocol::UniV4 | Protocol::PancakeV4 => format!(
             r#"{{
                 pools(first: {}, where: {{ id_gt: "{}" }}, orderBy: id, orderDirection: asc) {{
                     id

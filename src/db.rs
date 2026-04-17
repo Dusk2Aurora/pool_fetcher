@@ -90,7 +90,7 @@ impl Db {
             let fee = if protocol == "V2" {
                 3000 // V2 固定 0.3%
             } else {
-                // V3, Aerodrome, V4 都有 feeTier
+                // V3, Aerodrome, V4, PancakeV4 都有 feeTier
                 val["feeTier"]
                     .as_str()
                     .unwrap_or("0")
@@ -99,7 +99,7 @@ impl Db {
             };
 
             // 2. 重建 extra_data (包含 hooks)
-            let extra_data = if protocol == "V4" {
+            let extra_data = if protocol == "V4" || protocol == "Pancake-V4" {
                 serde_json::json!({
                     "hooks": val["hooks"], 
                     "liquidity": val["liquidity"],

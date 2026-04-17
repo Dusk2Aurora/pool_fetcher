@@ -13,6 +13,9 @@ pub enum Protocol {
     // 新增 V4
     #[value(name = "v4")]
     UniV4,
+    // 新增 Pancake V4
+    #[value(name = "pancake_v4")]
+    PancakeV4,
 }
 
 impl Protocol {
@@ -22,6 +25,7 @@ impl Protocol {
             Protocol::AerodromeV3 => "Aerodrome-V3",
             Protocol::UniV2 => "V2",
             Protocol::UniV4 => "V4",
+            Protocol::PancakeV4 => "Pancake-V4",
         }
     }
 }
