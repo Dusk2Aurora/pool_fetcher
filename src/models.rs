@@ -56,6 +56,7 @@ pub struct TokenPart {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(non_snake_case)]
 pub struct V3Pool {
     pub id: String,
     pub token0: TokenPart,
@@ -74,6 +75,7 @@ pub struct V3Data {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(non_snake_case)]
 pub struct V2Pair {
     pub id: String,
     pub token0: TokenPart,
@@ -88,6 +90,7 @@ pub struct V2Data {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(non_snake_case)]
 pub struct V4Pool {
     pub id: String,
     pub token0: TokenPart,
@@ -105,4 +108,21 @@ pub struct V4Pool {
 #[derive(Deserialize, Debug)]
 pub struct V4Data {
     pub pools: Vec<V4Pool>,
+}
+
+// ==================== Tick Fetcher Models ====================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(non_snake_case)]
+pub struct Tick {
+    pub tickIdx: String,
+    pub liquidityGross: String,
+    pub liquidityNet: String,
+    pub price0: String,
+    pub price1: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct TicksData {
+    pub ticks: Vec<Tick>,
 }
