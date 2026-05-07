@@ -6,13 +6,12 @@ mod cleaner;
 
 use clap::{Parser, Subcommand};
 use config::Config;
-use db::Db;
+use db::{Db, TicksDb};
 use models::Protocol;
-use reqwest::{Client, Proxy};
+use reqwest::Client;
 use std::time::Duration;
 use std::io::Write;
 use rusqlite::params;
-use std::env;
 
 #[derive(Parser)]
 #[command(name = "pool_fetcher")]
@@ -36,6 +35,20 @@ enum Commands {
     },
     /// 执行深度清洗并生成最终目标表
     Clean,
+    /// 拉取指定 Pool 的初始化 Tick 数据
+    FetchTicks {
+        /// 指定要拉取的协议 (v3, aerodrome)
+        #[arg(short, long, value_enum)]
+        protocol: Protocol,
+
+        /// 池子地址 (可选，如果不提供则拉取所有池子)
+        #[arg(short = 'a', long)]
+        pool_address: Option<String>,
+
+        /// 区块高度 (可选，如果不提供则从 _meta 查询当前区块高度)
+        #[arg(short = 'b', long)]
+        block_height: Option<u64>,
+    },
 }
 
 #[tokio::main]
@@ -153,6 +166,37 @@ async fn main() -> anyhow::Result<()> {
             }
             tx.commit()?;
             println!("✅ 清洗完成，目标数据库已更新。");
+        }
+        Commands::FetchTicks { protocol, pool_address, block_height } => {
+            println!("--- 模式: 拉取 Pool 初始化 Ticks ---");
+            println!("📍 池子地址: {:?}", pool_address.as_ref().map(|s| s.as_str()).or(Some("全部")).unwrap());
+            println!("📦 目标区块: {:?}", block_height.map(|h| h.to_string()).unwrap_or_else(|| "从 _meta 查询".to_string()));
+            
+            // 确定目标 URL
+            let url = match protocol {
+                Protocol::UniV3 => config.url_uni_v3.clone(),
+                Protocol::AerodromeV3 => config.url_aerodrome.clone(),
+                _ => {
+                    log::error!("❌ Tick 拉取仅支持 V3 和 Aerodrome V3 协议");
+                    return Err(anyhow::anyhow!("Tick fetching only supports V3 protocols"));
+                }
+            };
+
+            // 初始化 ticks 数据库 (独立的数据库文件)
+            let mut ticks_db = TicksDb::new(&config.ticks_db_path)?;
+            ticks_db.init()?;
+
+            let client = Client::builder()
+                .timeout(Duration::from_secs(120))
+                .build()?;
+
+            match fetcher::fetch_ticks_for_all_pools(&client, &database, &mut ticks_db, &url, pool_address, block_height).await {
+                Ok(_) => log::info!("✅ Tick 拉取任务完成"),
+                Err(e) => {
+                    log::error!("❌ Tick 拉取任务失败: {:?}", e);
+                    return Err(e.into());
+                }
+            }
         }
     }
 
