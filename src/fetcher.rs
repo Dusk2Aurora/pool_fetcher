@@ -129,6 +129,11 @@ pub async fn fetch_and_save(
     Ok(())
 }
 
+/// 将 Subgraph 返回的 decimals 字符串（BigInt）解析为 u8，缺失时返回 None
+fn parse_decimals(raw: &Option<String>) -> Option<u8> {
+    raw.as_ref()?.parse::<u8>().ok()
+}
+
 fn parse_response(protocol: &Protocol, body: Value) -> Result<(Vec<UnifiedPool>, usize, String)> {
     let mut pools = Vec::new();
     let mut last_id = String::new();
@@ -158,6 +163,8 @@ fn parse_response(protocol: &Protocol, body: Value) -> Result<(Vec<UnifiedPool>,
                     token1_id: p.token1.id,
                     token1_symbol: p.token1.symbol,
                     fee,
+                    decimals0: parse_decimals(&p.token0.decimals),
+                    decimals1: parse_decimals(&p.token1.decimals),
                     raw_json: raw,
                     extra_data: extra,
                     tvl_usd: tvl,
@@ -185,6 +192,8 @@ fn parse_response(protocol: &Protocol, body: Value) -> Result<(Vec<UnifiedPool>,
                     token1_id: p.token1.id,
                     token1_symbol: p.token1.symbol,
                     fee: 3000,
+                    decimals0: parse_decimals(&p.token0.decimals),
+                    decimals1: parse_decimals(&p.token1.decimals),
                     raw_json: raw,
                     extra_data: extra,
                     tvl_usd: tvl,
@@ -205,7 +214,7 @@ fn parse_response(protocol: &Protocol, body: Value) -> Result<(Vec<UnifiedPool>,
                 let extra = serde_json::json!({
                     "liquidity": p.liquidity,
                     "tvl_usd": p.totalValueLockedUSD,
-                    "hooks": p.hooks 
+                    "hooks": p.hooks
                 }).to_string();
 
                 pools.push(UnifiedPool {
@@ -216,6 +225,8 @@ fn parse_response(protocol: &Protocol, body: Value) -> Result<(Vec<UnifiedPool>,
                     token1_id: p.token1.id,
                     token1_symbol: p.token1.symbol,
                     fee,
+                    decimals0: parse_decimals(&p.token0.decimals),
+                    decimals1: parse_decimals(&p.token1.decimals),
                     raw_json: raw,
                     extra_data: extra,
                     tvl_usd: tvl,
@@ -235,8 +246,8 @@ fn build_query(protocol: &Protocol, last_id: &str) -> String {
                     feeTier
                     liquidity
                     totalValueLockedUSD
-                    token0 {{ id symbol }}
-                    token1 {{ id symbol }}
+                    token0 {{ id symbol decimals }}
+                    token1 {{ id symbol decimals }}
                 }}
             }}"#,
             BATCH_SIZE, last_id
@@ -246,8 +257,8 @@ fn build_query(protocol: &Protocol, last_id: &str) -> String {
                 pairs(first: {}, where: {{ id_gt: "{}" }}, orderBy: id, orderDirection: asc) {{
                     id
                     reserveUSD
-                    token0 {{ id symbol }}
-                    token1 {{ id symbol }}
+                    token0 {{ id symbol decimals }}
+                    token1 {{ id symbol decimals }}
                 }}
             }}"#,
             BATCH_SIZE, last_id
@@ -260,8 +271,8 @@ fn build_query(protocol: &Protocol, last_id: &str) -> String {
                     hooks
                     liquidity
                     totalValueLockedUSD
-                    token0 {{ id symbol }}
-                    token1 {{ id symbol }}
+                    token0 {{ id symbol decimals }}
+                    token1 {{ id symbol decimals }}
                 }}
             }}"#,
             BATCH_SIZE, last_id

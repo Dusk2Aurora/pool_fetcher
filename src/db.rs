@@ -26,10 +26,22 @@ impl Db {
                 token1 TEXT NOT NULL,
                 token1_symbol TEXT DEFAULT '',
                 tvl_usd REAL,
-                raw_json TEXT
+                raw_json TEXT,
+                decimals0 INTEGER,
+                decimals1 INTEGER
             )",
             [],
         )?;
+
+        // 兼容旧表：如果从旧版本升级，尝试添加缺失的 decimals 列
+        self.conn.execute(
+            "ALTER TABLE raw_pools ADD COLUMN decimals0 INTEGER",
+            [],
+        ).ok();
+        self.conn.execute(
+            "ALTER TABLE raw_pools ADD COLUMN decimals1 INTEGER",
+            [],
+        ).ok();
 
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS target_pools (
@@ -40,10 +52,21 @@ impl Db {
                 token1 TEXT NOT NULL,
                 token1_symbol TEXT DEFAULT '',
                 fee INTEGER DEFAULT 0,
-                extra_data TEXT
+                extra_data TEXT,
+                decimals0 INTEGER,
+                decimals1 INTEGER
             )",
             [],
         )?;
+
+        self.conn.execute(
+            "ALTER TABLE target_pools ADD COLUMN decimals0 INTEGER",
+            [],
+        ).ok();
+        self.conn.execute(
+            "ALTER TABLE target_pools ADD COLUMN decimals1 INTEGER",
+            [],
+        ).ok();
 
         Ok(())
     }
@@ -52,21 +75,23 @@ impl Db {
         let tx = self.conn.transaction()?;
         {
             let mut stmt = tx.prepare(
-                "INSERT OR REPLACE INTO raw_pools 
-                (id, protocol, token0, token0_symbol, token1, token1_symbol, tvl_usd, raw_json)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"
+                "INSERT OR REPLACE INTO raw_pools
+                (id, protocol, token0, token0_symbol, token1, token1_symbol, tvl_usd, raw_json, decimals0, decimals1)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
             )?;
             
             for pool in pools {
                 stmt.execute(params![
-                    pool.id, 
-                    pool.protocol, 
-                    pool.token0_id, 
-                    pool.token0_symbol, 
-                    pool.token1_id, 
+                    pool.id,
+                    pool.protocol,
+                    pool.token0_id,
+                    pool.token0_symbol,
+                    pool.token1_id,
                     pool.token1_symbol,
                     pool.tvl_usd,
-                    pool.raw_json
+                    pool.raw_json,
+                    pool.decimals0,
+                    pool.decimals1,
                 ])?;
             }
         }
@@ -76,13 +101,15 @@ impl Db {
 
     pub fn get_all_raw(&self) -> Result<Vec<UnifiedPool>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, protocol, token0, token0_symbol, token1, token1_symbol, tvl_usd, raw_json FROM raw_pools"
+            "SELECT id, protocol, token0, token0_symbol, token1, token1_symbol, tvl_usd, raw_json, decimals0, decimals1 FROM raw_pools"
         )?;
         
         let rows = stmt.query_map([], |row| {
             let id: String = row.get(0)?;
             let protocol: String = row.get(1)?;
             let raw_json: String = row.get(7)?;
+            let decimals0: Option<u8> = row.get(8)?;
+            let decimals1: Option<u8> = row.get(9)?;
             
             let val: Value = serde_json::from_str(&raw_json).unwrap_or(Value::Null);
             
@@ -111,7 +138,7 @@ impl Db {
                 }
 
                 serde_json::json!({
-                    "hooks": val["hooks"], 
+                    "hooks": val["hooks"],
                     "liquidity": val["liquidity"],
                     "tvl_usd": val["totalValueLockedUSD"],
                     "pool_id": id // 保存原始 32 bytes ID
@@ -139,6 +166,8 @@ impl Db {
                 token1_id: row.get(4)?,
                 token1_symbol: row.get(5)?,
                 fee,
+                decimals0,
+                decimals1,
                 tvl_usd: row.get(6)?,
                 raw_json,
                 extra_data,

@@ -39,6 +39,8 @@ pub struct UnifiedPool {
     pub token1_id: String,
     pub token1_symbol: String,
     pub fee: u32,
+    pub decimals0: Option<u8>,
+    pub decimals1: Option<u8>,
     pub raw_json: String,
     pub extra_data: String,
     pub tvl_usd: f64,
@@ -53,6 +55,9 @@ pub struct GraphResponse<T> {
 pub struct TokenPart {
     pub id: String,
     pub symbol: String,
+    /// Subgraph 返回的 decimals 是字符串（BigInt），用 Option 兜底缺失情况
+    #[serde(default)]
+    pub decimals: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

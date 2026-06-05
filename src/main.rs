@@ -130,24 +130,26 @@ async fn main() -> anyhow::Result<()> {
             println!("💾 正在生成目标表 (target_pools)...");
             database.clear_target()?;
             
-            let tx = database.conn.transaction()?; 
+            let tx = database.conn.transaction()?;
             {
                 let mut stmt = tx.prepare(
-                    "INSERT OR REPLACE INTO target_pools 
-                    (address, protocol, token0, token0_symbol, token1, token1_symbol, fee, extra_data)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"
+                    "INSERT OR REPLACE INTO target_pools
+                    (address, protocol, token0, token0_symbol, token1, token1_symbol, fee, extra_data, decimals0, decimals1)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
                 )?;
                 
                 for pool in &clean_pools {
                      stmt.execute(params![
-                         pool.id, 
-                         pool.protocol, 
-                         pool.token0_id, 
-                         pool.token0_symbol, 
-                         pool.token1_id, 
-                         pool.token1_symbol, 
-                         pool.fee, 
-                         pool.extra_data
+                         pool.id,
+                         pool.protocol,
+                         pool.token0_id,
+                         pool.token0_symbol,
+                         pool.token1_id,
+                         pool.token1_symbol,
+                         pool.fee,
+                         pool.extra_data,
+                         pool.decimals0,
+                         pool.decimals1,
                      ])?;
                 }
             }
