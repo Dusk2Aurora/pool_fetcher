@@ -8,11 +8,10 @@ use clap::{Parser, Subcommand};
 use config::Config;
 use db::Db;
 use models::Protocol;
-use reqwest::{Client, Proxy};
+use reqwest::Client;
 use std::time::Duration;
 use std::io::Write;
 use rusqlite::params;
-use std::env;
 
 #[derive(Parser)]
 #[command(name = "pool_fetcher")]
@@ -61,7 +60,7 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Fetch { protocol, start_id } => {
+        Commands::Fetch { protocol, .. } => {
             // 确定目标 URL
             let url = match protocol {
                 Protocol::UniV3 => config.url_uni_v3,
@@ -86,7 +85,7 @@ async fn main() -> anyhow::Result<()> {
                 let proxy_url = if addr.starts_with("http") {
                     addr
                 } else {
-                    format!("http://{}", addr) 
+                    format!("http://{}", addr)
                 };
 
                 println!("🌐 正在强制应用代理: {}", proxy_url);
@@ -109,12 +108,9 @@ async fn main() -> anyhow::Result<()> {
 
             let client = client_builder.build()?;
 
-            println!("--- 模式: 单协议拉取 ---");
-            if let Some(ref id) = start_id {
-                println!("⏩ 启用断点续传，起始 ID: {}", id);
-            }
+            println!("--- 模式: 单协议拉取 (TVL 降序，上限 5000 条) ---");
 
-            match fetcher::fetch_and_save(&client, &mut database, &url, protocol.clone(), start_id).await {
+            match fetcher::fetch_and_save(&client, &mut database, &url, protocol.clone()).await {
                 Ok(_) => log::info!("{:?} 任务完成", protocol),
                 Err(e) => log::error!("{:?} 任务失败: {:?}", protocol, e),
             }

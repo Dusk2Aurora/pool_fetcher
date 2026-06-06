@@ -66,11 +66,11 @@ pub struct V3Pool {
     pub token0: TokenPart,
     pub token1: TokenPart,
     #[serde(default)]
-    pub feeTier: String, 
+    pub feeTier: String,
     #[serde(default)]
     pub liquidity: String,
     #[serde(default)]
-    pub totalValueLockedUSD: String, 
+    pub totalValueLockedUSD: String,
 }
 
 #[derive(Deserialize, Debug)]
